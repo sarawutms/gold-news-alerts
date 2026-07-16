@@ -1,5 +1,5 @@
 """
-GOLD News Calendar Assistant with Desktop Notifications
+Gold News Calendar Assistant with Desktop Notifications
 ==========================================================
 วิธีรัน:
     pip install -r requirements.txt
@@ -36,6 +36,11 @@ MT4_MT5_TZ = timezone.utc
 
 # ==========================================
 # Timezone Configuration (International Standard)
+# ตามธรรมเนียมสากลที่เทรดเดอร์ทองคำ (Gold) ใช้กัน มี 4 session หลัก:
+# Sydney, Tokyo (โซนเอเชีย รวม HK/SG), London, New York
+# แต่ TradingView และแพลตฟอร์มส่วนใหญ่มักแสดงแค่ 3 session หลัก (Asia/Tokyo, London, New York)
+# ตัด Sydney ออกเพราะ volume น้อยและเวลาคาบเกี่ยวกับ Asia — ดีฟอลต์แอปนี้จึงยึดตามนั้น
+# (Sydney/Singapore ยังเลือกเพิ่มเองได้จาก sidebar ถ้าต้องการ)
 # ==========================================
 TIMEZONE_CONFIG = {
     "gmt": {
@@ -49,7 +54,7 @@ TIMEZONE_CONFIG = {
         "importance": "⭐⭐⭐⭐"
     },
     "tokyo": {
-        "name": "Tokyo 🇯🇵",
+        "name": "Asia (Tokyo) 🇯🇵",  # ตัวแทนโซนเอเชีย รวม HK/SG ตามธรรมเนียมสากล
         "tz": timezone(timedelta(hours=9)),  # JST (UTC+9)
         "tz_std": timezone(timedelta(hours=9)),  # No DST
         "color": "#9D4EDD",  # Purple
@@ -89,7 +94,7 @@ TIMEZONE_CONFIG = {
         "importance": "⭐⭐⭐⭐⭐"
     },
     "sydney": {
-        "name": "Sydney 🇦🇺",
+        "name": "Sydney 🇦🇺 (เสริม)",  # session ที่ 4 ตามสากล แต่ volume น้อย จึงไม่ใส่เป็นดีฟอลต์
         "tz": timezone(timedelta(hours=11)),  # AEDT (UTC+11) - ช่วง DST
         "tz_std": timezone(timedelta(hours=10)),  # AEST (UTC+10)
         "color": "#17C784",  # Green
@@ -128,6 +133,24 @@ def get_currency_badge(currency: str) -> str:
     flag = CURRENCY_FLAGS.get(currency, "🏳️")
     return f"{flag} {currency}"
 
+
+# ==========================================
+# เวลาท้องถิ่นของแต่ละสกุลเงิน (ใช้แสดงเวลาข่าวแทน MT4/MT5)
+# แต่ละสกุลเงินผูกกับเมือง/ธนาคารกลางที่เป็นตัวแทนหลัก ใช้ ZoneInfo
+# เพื่อให้ DST ถูกต้องอัตโนมัติเหมือนกับ session status
+# ==========================================
+CURRENCY_TIMEZONE_MAP = {
+    "USD": {"zone": ZoneInfo("America/New_York"), "label": "New York"},
+    "EUR": {"zone": ZoneInfo("Europe/Berlin"), "label": "Frankfurt"},
+    "GBP": {"zone": ZoneInfo("Europe/London"), "label": "London"},
+    "JPY": {"zone": ZoneInfo("Asia/Tokyo"), "label": "Tokyo"},
+    "CNY": {"zone": ZoneInfo("Asia/Shanghai"), "label": "Shanghai"},
+    "AUD": {"zone": ZoneInfo("Australia/Sydney"), "label": "Sydney"},
+    "CAD": {"zone": ZoneInfo("America/Toronto"), "label": "Toronto"},
+    "CHF": {"zone": ZoneInfo("Europe/Zurich"), "label": "Zurich"},
+    "NZD": {"zone": ZoneInfo("Pacific/Auckland"), "label": "Auckland"},
+}
+
 # ==========================================
 # ระบบจำการตั้งค่า (persist ข้าม browser refresh / เปิดแอปใหม่)
 # ==========================================
@@ -135,6 +158,14 @@ def get_currency_badge(currency: str) -> str:
 # หรือกด widget อื่น) แต่พอ "รีเฟรชเบราว์เซอร์" (F5) มันคือ session ใหม่ทั้งหมด
 # session_state ถูกล้าง ต้องเก็บค่าไว้ "นอก" Streamlit คือไฟล์บนดิสก์แทน
 SETTINGS_FILE = Path(__file__).resolve().parent / "user_settings.json"
+
+# ตัวเลือกโทนเสียงแจ้งเตือน (ความถี่เป็น Hz, ใช้ Web Audio API สร้างเสียงเอง ไม่ต้องมีไฟล์เสียง)
+SOUND_TONE_MAP = {
+    "ทุ้ม (Low)": {"freq": 500, "double": False},
+    "กลาง (Mid)": {"freq": 800, "double": False},
+    "แหลม (High)": {"freq": 1200, "double": False},
+    "สองจังหวะ (Double Beep)": {"freq": 800, "double": True},
+}
 
 DEFAULT_SETTINGS = {
     "selected_timezones": DEFAULT_TIMEZONES,
@@ -146,6 +177,8 @@ DEFAULT_SETTINGS = {
     "notify_released": True,
     "auto_refresh_on": True,
     "refresh_seconds": 30,
+    "sound_tone": "กลาง (Mid)",
+    "sound_volume": 0.3,
 }
 
 
@@ -173,6 +206,11 @@ def load_settings() -> dict:
     refresh_val = settings.get("refresh_seconds", 30)
     if not isinstance(refresh_val, int) or not (10 <= refresh_val <= 120):
         settings["refresh_seconds"] = 30
+    if settings.get("sound_tone") not in SOUND_TONE_MAP:
+        settings["sound_tone"] = "กลาง (Mid)"
+    vol_val = settings.get("sound_volume", 0.3)
+    if not isinstance(vol_val, (int, float)) or not (0.0 <= vol_val <= 1.0):
+        settings["sound_volume"] = 0.3
 
     return settings
 
@@ -197,7 +235,7 @@ HTTP_HEADERS = {
 # ==========================================
 # 1. การตั้งค่าหน้าเว็บ + CSS สำหรับ Notification
 # ==========================================
-st.set_page_config(page_title="Gold News", page_icon="🥇", layout="wide")
+st.set_page_config(page_title="Gold News ", page_icon="🥇", layout="wide")
 
 st.markdown(
     """
@@ -221,6 +259,12 @@ st.markdown(
         border-radius: 8px;
         margin-bottom: 10px;
         border-left: 5px solid #ffd700;
+    }
+
+    /* Responsive: จอแคบ (มือถือ) ลดขนาด metric ลงกันล้นจอ */
+    @media (max-width: 480px) {
+        div[data-testid="stMetricValue"] { font-size: 1.4rem; }
+        div[data-testid="stMetricLabel"] { font-size: 0.75rem; }
     }
     </style>
     """,
@@ -248,25 +292,34 @@ window.showDesktopNotification = function(title, options = {}) {
     }
 };
 
-// ฟังก์ชันเล่นเสียงเตือน
-window.playNotificationSound = function() {
+// ฟังก์ชันเล่นเสียงเตือน — ปรับความถี่ (โทนเสียง), ระดับเสียง, และเล่นซ้ำ 2 จังหวะได้
+window.playNotificationSound = function(frequency = 800, volume = 0.3, doubleBeep = false) {
     // สร้างเสียง beep โดยใช้ Web Audio API
     try {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.frequency.value = 800; // ความถี่ (Hz)
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.5);
+
+        const playTone = (startTime) => {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.frequency.value = frequency; // ความถี่ (Hz) ปรับได้จาก sidebar
+            oscillator.type = 'sine';
+
+            gainNode.gain.setValueAtTime(volume, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.5);
+
+            oscillator.start(startTime);
+            oscillator.stop(startTime + 0.5);
+        };
+
+        const now = audioContext.currentTime;
+        playTone(now);
+        if (doubleBeep) {
+            playTone(now + 0.3); // จังหวะที่ 2 ห่างจากจังหวะแรก 0.3 วิ
+        }
     } catch (e) {
         console.log('Web Audio API ไม่สามารถใช้ได้:', e);
     }
@@ -288,9 +341,6 @@ if "notified_released" not in st.session_state:
 
 if "last_check_time" not in st.session_state:
     st.session_state.last_check_time = None
-
-if "breaking_news_log" not in st.session_state:
-    st.session_state.breaking_news_log = []  # เก็บประวัติ Breaking News ที่โพสต์ไว้ (คงอยู่ตลอด session)
 
 # ==========================================
 # 4. พจนานุกรมข่าวและผลกระทบต่อทองคำ (Knowledge Base)
@@ -367,6 +417,14 @@ NEWS_DB = [
         "impact": "ขาดดุลมากกว่าคาด = กดดันดอลลาร์เล็กน้อย (ทองขึ้นเล็กน้อย) 🚀",
     },
     {
+        # เช็คก่อน pattern fomc/fed ทั่วไป — "สมาชิกพูด/แถลง" ไม่ใช่การประกาศดอกเบี้ยจริง
+        # (สำคัญมากตั้งแต่เปิดแสดง Low impact เพราะจะเจอ "FOMC Member X Speaks" บ่อยมาก
+        # ถ้าไม่แยกจะถูกตีความเป็น "ประกาศดอกเบี้ย" ผิดๆ ทั้งที่เป็นแค่ความเห็นส่วนบุคคล)
+        "patterns": [r"\bspeaks\b", r"testifies", r"testimony"],
+        "th": "สุนทรพจน์/แถลงความเห็นผู้บริหารธนาคารกลาง",
+        "impact": "เป็นความเห็นส่วนบุคคล ไม่ใช่การประกาศดอกเบี้ยอย่างเป็นทางการ แต่ตลาดอาจตีความเป็นสัญญาณทิศทางดอกเบี้ยในอนาคต — โดยทั่วไปผลกระทบเบากว่าการประกาศดอกเบี้ยจริงมาก",
+    },
+    {
         "patterns": [r"\bfomc\b", r"\bfed\b", r"federal reserve", r"interest rate decision", r"powell"],
         "th": "แถลงการณ์/ดอกเบี้ย FED",
         "impact": "ขึ้นดอกเบี้ย/ส่งสัญญาณคุมเข้ม = ดอลลาร์แข็ง (ทองร่วงหนัก) 📉 | ลดดอกเบี้ย/ส่งสัญญาณผ่อนคลาย = ดอลลาร์อ่อน (ทองพุ่งทะยาน) 🚀",
@@ -416,8 +474,10 @@ def impact_badge_html(impact: str) -> str:
 
 
 def display_timezone_clocks(selected_zones: list):
-    """แสดงนาฬิกาเวลาหลาย timezone พร้อมสี (อัปเดตแบบ Real-time ด้วย JavaScript)"""
-    
+    """แสดงนาฬิกาเวลาหลาย timezone พร้อมสี (อัปเดตแบบ Real-time ด้วย JavaScript)
+    Responsive: การ์ดจะเรียงเป็นแถวบนจอกว้าง และตกลงมาเป็น 2 คอลัมน์บนจอแคบ (มือถือ)
+    โดยคำนวณความสูงของกรอบ (iframe) แบบไดนามิกกันเนื้อหาโดนตัดขาดตอนตกบรรทัด"""
+
     # ฐานข้อมูล IANA Timezone สำหรับให้ JavaScript นำไปประมวลผล (รองรับ DST อัตโนมัติ)
     JS_TIMEZONES = {
         "gmt": "UTC",
@@ -431,41 +491,33 @@ def display_timezone_clocks(selected_zones: list):
 
     cards_html = ""
     js_clock_data = []
-    
+    valid_zone_count = 0
+
     # สร้างโครงสร้าง HTML สำหรับแต่ละโซนเวลาที่ผู้ใช้เลือก
     for zone_key in selected_zones:
         if zone_key not in TIMEZONE_CONFIG:
             continue
-            
+
         config = TIMEZONE_CONFIG[zone_key]
         js_tz = JS_TIMEZONES.get(zone_key, "UTC")
         clock_id = f"clock-{zone_key}"
-        
+        valid_zone_count += 1
+
         cards_html += f"""
-        <div style="
-            flex: 1;
-            min-width: 150px;
-            background-color: {config['color']};
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            font-family: sans-serif;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        ">
-            <div style="font-size: 0.9em; margin-bottom: 8px; font-weight: bold;">
+        <div class="tz-card" style="background-color: {config['color']};">
+            <div class="tz-card-label">
                 {config['status_badge']} {config['name']}
             </div>
             <!-- ช่องว่างสำหรับใส่เวลาจาก JavaScript -->
-            <div id="{clock_id}" style="font-size: 1.8em; font-family: 'Courier New', monospace; font-weight: bold;">
+            <div id="{clock_id}" class="tz-card-time">
                 --:--:--
             </div>
-            <div style="font-size: 0.8em; margin-top: 8px; opacity: 0.9;">
+            <div class="tz-card-session">
                 {config['session']}
             </div>
         </div>
         """
-        
+
         # เก็บข้อมูลเพื่อส่งให้ JS
         js_clock_data.append(f"{{ id: '{clock_id}', tz: '{js_tz}' }}")
 
@@ -473,10 +525,41 @@ def display_timezone_clocks(selected_zones: list):
 
     # ประกอบ HTML และ JavaScript (ทำงานทุกๆ 1 วินาที)
     html_content = f"""
-    <div style="display: flex; gap: 15px; flex-wrap: wrap; width: 100%;">
+    <style>
+        .tz-clock-wrap {{
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            width: 100%;
+            box-sizing: border-box;
+        }}
+        .tz-card {{
+            flex: 1;
+            min-width: 150px;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            font-family: sans-serif;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+        }}
+        .tz-card-label {{ font-size: 0.9em; margin-bottom: 8px; font-weight: bold; }}
+        .tz-card-time {{ font-size: 1.8em; font-family: 'Courier New', monospace; font-weight: bold; }}
+        .tz-card-session {{ font-size: 0.8em; margin-top: 8px; opacity: 0.9; }}
+
+        /* จอแคบ (มือถือ): บังคับ 2 การ์ดต่อแถว ลดขนาดตัวอักษรลง กันล้นจอ */
+        @media (max-width: 480px) {{
+            .tz-card {{ min-width: calc(50% - 8px); padding: 10px; }}
+            .tz-card-time {{ font-size: 1.3em; }}
+            .tz-card-label {{ font-size: 0.75em; }}
+            .tz-card-session {{ font-size: 0.7em; }}
+        }}
+    </style>
+    <div class="tz-clock-wrap">
         {cards_html}
     </div>
-    
+
     <script>
         const clocks = [
             {js_arrays_str}
@@ -505,9 +588,14 @@ def display_timezone_clocks(selected_zones: list):
     </script>
     """
 
-    # แสดงผลผ่าน st.components.v1 (กำหนดความสูงให้พอดีกับกล่อง)
+    # คำนวณความสูง iframe แบบไดนามิก: สมมติกรณีแย่สุดบนมือถือคือ 2 การ์ดต่อแถว
+    # (กันเนื้อหาโดนตัดขาดตอนการ์ดตกบรรทัดใหม่ ซึ่ง iframe ปกติความสูงตายตัวจะทำให้บังเนื้อหา)
+    rows_estimate = max(1, (valid_zone_count + 1) // 2)
+    dynamic_height = max(130, 108 * rows_estimate + 20)
+
+    # แสดงผลผ่าน st.components.v1 (scrolling=True เป็น safety net เผื่อคำนวณความสูงพลาด)
     import streamlit.components.v1 as components
-    components.html(html_content, height=130)
+    components.html(html_content, height=dynamic_height, scrolling=True)
 
 
 # นิยามเวลาเปิด-ปิดตลาดเป็น "เวลาท้องถิ่นจริง" ของแต่ละเมือง (ไม่ hardcode เป็น GMT offset ตายตัว)
@@ -706,10 +794,16 @@ def parse_iso_datetime(date_str: str) -> datetime:
     return datetime.fromisoformat(date_str)
 
 
-def format_dual_time(dt_thai: datetime) -> str:
-    """แสดงเวลาคู่: เวลาไทย (หลัก) พร้อมเวลา MT4/MT5 Server ในวงเล็บ"""
+def format_dual_time(dt_thai: datetime, currency: str = None) -> str:
+    """แสดงเวลาคู่: เวลาไทย (หลัก) พร้อมเวลาท้องถิ่นของสกุลเงินข่าวนั้นๆ ในวงเล็บ
+    เช่น ข่าว USD จะโชว์เวลา New York, ข่าว JPY จะโชว์เวลา Tokyo
+    ถ้าไม่ทราบสกุลเงิน หรือไม่มีใน CURRENCY_TIMEZONE_MAP จะ fallback ไปโชว์เวลา GMT/Server แทน"""
+    tz_info = CURRENCY_TIMEZONE_MAP.get(currency)
+    if tz_info:
+        local_time = dt_thai.astimezone(tz_info["zone"])
+        return f"{dt_thai.strftime('%H:%M')} น. ({tz_info['label']} {local_time.strftime('%H:%M')})"
     server_time = dt_thai.astimezone(MT4_MT5_TZ)
-    return f"{dt_thai.strftime('%H:%M')} น. (MT4/MT5 {server_time.strftime('%H:%M')})"
+    return f"{dt_thai.strftime('%H:%M')} น. (GMT {server_time.strftime('%H:%M')})"
 
 
 # ==========================================
@@ -774,7 +868,7 @@ def send_notification(title: str, body: str, enable_desktop: bool, enable_sound:
             <script>
             window.showDesktopNotification('{title}', {{
                 body: '{body}',
-                tag: 'GOLD-alert'
+                tag: 'Gold-alert'
             }});
             </script>
             """,
@@ -783,9 +877,9 @@ def send_notification(title: str, body: str, enable_desktop: bool, enable_sound:
     
     if enable_sound:
         st.components.v1.html(
-            """
+            f"""
             <script>
-            window.playNotificationSound();
+            window.playNotificationSound({sound_frequency}, {sound_volume}, {str(sound_double_beep).lower()});
             </script>
             """,
             height=0
@@ -826,6 +920,34 @@ with st.sidebar:
     if enable_notifications:
         enable_desktop_notif = st.checkbox("💻 Desktop Popup", value=saved_settings["enable_desktop_notif"], help="แสดง Notification ที่มุมจอ")
         enable_sound_notif = st.checkbox("🔊 Sound Alert", value=saved_settings["enable_sound_notif"], help="เล่นเสียงเตือน")
+
+        if enable_sound_notif:
+            sound_tone = st.selectbox(
+                "🎵 โทนเสียง",
+                options=list(SOUND_TONE_MAP.keys()),
+                index=list(SOUND_TONE_MAP.keys()).index(saved_settings["sound_tone"]),
+                help="เลือกโทนเสียงแจ้งเตือนที่ชอบ"
+            )
+            sound_volume = st.slider("🔈 ระดับเสียง", 0.0, 1.0, saved_settings["sound_volume"], step=0.1)
+
+            sound_frequency = SOUND_TONE_MAP[sound_tone]["freq"]
+            sound_double_beep = SOUND_TONE_MAP[sound_tone]["double"]
+
+            if st.button("▶️ ทดสอบเสียง", use_container_width=True):
+                st.components.v1.html(
+                    f"""
+                    <script>
+                    window.playNotificationSound({sound_frequency}, {sound_volume}, {str(sound_double_beep).lower()});
+                    </script>
+                    """,
+                    height=0
+                )
+        else:
+            sound_tone = saved_settings["sound_tone"]
+            sound_volume = saved_settings["sound_volume"]
+            sound_frequency = SOUND_TONE_MAP[sound_tone]["freq"]
+            sound_double_beep = SOUND_TONE_MAP[sound_tone]["double"]
+
         notify_upcoming = st.checkbox("⏰ เตือนก่อน 5-10 นาที", value=saved_settings["notify_upcoming"], help="เตือนข่าวที่กำลังจะออก")
         notify_released = st.checkbox("✅ เตือนเมื่อข่าวออก", value=saved_settings["notify_released"], help="เตือนทันทีเมื่อข่าวเพิ่งออก")
     else:
@@ -833,6 +955,10 @@ with st.sidebar:
         enable_sound_notif = False
         notify_upcoming = False
         notify_released = False
+        sound_tone = saved_settings["sound_tone"]
+        sound_volume = saved_settings["sound_volume"]
+        sound_frequency = SOUND_TONE_MAP[sound_tone]["freq"]
+        sound_double_beep = SOUND_TONE_MAP[sound_tone]["double"]
 
     st.divider()
     auto_refresh_on = st.toggle("🔄 อัปเดตอัตโนมัติ", value=saved_settings["auto_refresh_on"])
@@ -862,6 +988,8 @@ with st.sidebar:
         "notify_released": notify_released,
         "auto_refresh_on": auto_refresh_on,
         "refresh_seconds": refresh_seconds,
+        "sound_tone": sound_tone,
+        "sound_volume": sound_volume,
     })
 
     st.caption(f"เวลาปัจจุบัน: {datetime.now(THAI_TZ).strftime('%H:%M:%S น.')}")
@@ -893,129 +1021,8 @@ with st.sidebar:
 # 9. ส่วนแสดงผล: หัวข้อ + นาฬิกาเวลาสด
 # ==========================================
 st.title("🥇 Gold News")
-st.markdown("ติดตามข่าวเศรษฐกิจและเหตุการณ์สำคัญทั่วโลกที่มีผลต่อราคาทองคำ (GOLD) อัปเดตอัตโนมัติ")
+st.markdown("ติดตามข่าวเศรษฐกิจและเหตุการณ์สำคัญทั่วโลกที่มีผลต่อราคาทองคำ (Gold) อัปเดตอัตโนมัติ")
 
-# ==========================================
-# Breaking News Section (ย้ายขึ้นบนสุด + เก็บลง session_state
-# แก้ปัญหาเดิม: โพสต์แล้วพอมีการโต้ตอบอื่นในหน้า การ์ดก็หายไปเพราะไม่เคยถูกเก็บไว้เลย)
-# ==========================================
-st.subheader("🚨 Breaking News Alert")
-
-col_bn1, col_bn2 = st.columns([3, 1])
-
-with col_bn1:
-    breaking_news_type = st.selectbox(
-        "📰 ประเภทข่าว",
-        ["(ไม่มี)",
-         "🏛️ ผู้นำประเทศ/นักการเมือง",      # เช่น Trump, ผู้นำประเทศอื่นๆ (ไม่จำกัดแค่สหรัฐฯ)
-         "🌍 ภูมิรัฐศาสตร์/สงคราม",
-         "🏦 ธนาคารกลาง (Fed/ECB/BOJ/BOE/PBOC)",
-         "📉 ตลาดการเงินปั่นป่วน (Crash/Rally)",
-         "🏦 วิกฤตธนาคาร/สภาพคล่อง",
-         "💱 ข่าวเฉพาะสกุลเงิน",              # เลือกสกุลเงินเพิ่มด้านล่าง
-         "🛢️ Commodity/น้ำมัน/Supply Shock",
-         "🏛️ กฎหมาย/นโยบายรัฐ"],
-        key="bn_type",
-        help="เลือกประเภทที่ใกล้เคียงที่สุด ไม่จำกัดแค่ข่าว USD เพราะทองคำถูกกระทบจากหลายสกุลเงิน/เหตุการณ์ทั่วโลก"
-    )
-
-    breaking_news_currency = None
-    if breaking_news_type == "💱 ข่าวเฉพาะสกุลเงิน":
-        breaking_news_currency = st.selectbox(
-            "เกี่ยวกับสกุลเงินไหน",
-            options=TARGET_CURRENCIES,
-            format_func=get_currency_badge,
-            key="bn_currency"
-        )
-
-with col_bn2:
-    if st.checkbox("📢 มีข่าวใหม่?", key="bn_checkbox"):
-        breaking_news_text = st.text_area(
-            "ข้อมูลข่าว",
-            placeholder="เช่น: Trump announces 25% tariff on China...",
-            height=60,
-            key="bn_text"
-        )
-
-        if breaking_news_text and breaking_news_type != "(ไม่มี)":
-            news_impact = st.radio(
-                "ผลกระทบต่อทองคำ",
-                ["Gold UP 🚀", "Gold DOWN 📉", "ยังไม่แน่ใจ"],
-                key="bn_impact"
-            )
-
-            if st.button("🚨 POST BREAKING NEWS", key="bn_button"):
-                # เก็บลง session_state — คงอยู่ตลอด session ไม่หายเมื่อหน้ามีการโต้ตอบอื่น
-                st.session_state.breaking_news_log.insert(0, {
-                    "type": breaking_news_type,
-                    "currency": breaking_news_currency,  # None ถ้าไม่ใช่ประเภท "ข่าวเฉพาะสกุลเงิน"
-                    "text": breaking_news_text,
-                    "impact": news_impact,
-                    "time": datetime.now(THAI_TZ).strftime("%H:%M:%S น."),
-                })
-                st.session_state.breaking_news_log = st.session_state.breaking_news_log[:20]  # เก็บ 20 รายการล่าสุดพอ
-
-                notif_title = f"🚨 BREAKING NEWS: {breaking_news_type}"
-                if breaking_news_currency:
-                    notif_title += f" ({breaking_news_currency})"
-
-                send_notification(
-                    notif_title,
-                    f"Gold: {news_impact}\n{breaking_news_text[:100]}...",
-                    True,
-                    True
-                )
-                st.rerun()
-
-# แสดง Breaking News ล่าสุด (การ์ดใหญ่) + ประวัติก่อนหน้า (อ่านจาก session_state ทุกครั้ง จึงไม่หาย)
-if st.session_state.breaking_news_log:
-    latest = st.session_state.breaking_news_log[0]
-    latest_color = "#00D084" if "UP" in latest["impact"] else ("#FF3B30" if "DOWN" in latest["impact"] else "#868E96")
-    latest_icon = "🚀" if "UP" in latest["impact"] else ("📉" if "DOWN" in latest["impact"] else "❓")
-    latest_type_label = latest["type"]
-    if latest.get("currency"):
-        latest_type_label += f" {get_currency_badge(latest['currency'])}"
-
-    st.markdown(
-        f"""
-        <div style="
-            background: linear-gradient(135deg, {latest_color} 0%, rgba(255,255,255,0.1) 100%);
-            border: 3px solid {latest_color};
-            border-radius: 15px;
-            padding: 20px;
-            margin: 10px 0 20px 0;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        ">
-            <div style="color: white; font-size: 1.3em; font-weight: bold; margin-bottom: 8px;">
-                🚨 {latest_type_label}
-            </div>
-            <div style="color: white; font-size: 0.95em; margin-bottom: 10px; line-height: 1.6;">
-                {latest['text']}
-            </div>
-            <div style="color: white; font-size: 1.1em; font-weight: bold;">
-                💰 Expected Impact: {latest['impact']} {latest_icon}
-            </div>
-            <div style="color: white; font-size: 0.8em; margin-top: 8px; opacity: 0.8;">
-                ⏰ {latest['time']}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    if len(st.session_state.breaking_news_log) > 1:
-        with st.expander(f"📜 ประวัติ Breaking News ก่อนหน้า ({len(st.session_state.breaking_news_log) - 1} รายการ)"):
-            for entry in st.session_state.breaking_news_log[1:]:
-                entry_type_label = entry["type"]
-                if entry.get("currency"):
-                    entry_type_label += f" {get_currency_badge(entry['currency'])}"
-                st.markdown(f"**[{entry['time']}] {entry_type_label}** — {entry['text']} → **{entry['impact']}**")
-
-    if st.button("🗑️ ล้างประวัติ Breaking News", key="bn_clear"):
-        st.session_state.breaking_news_log = []
-        st.rerun()
-
-st.markdown("---")
 
 # แสดง Multi-Timezone Clocks พร้อมสี (อัปเดตเองด้วย JS ทุกวินาที ไม่ต้องพึ่ง Python rerun)
 if selected_timezones:
@@ -1089,7 +1096,7 @@ def render_live_section():
 
                         send_notification(
                             f"⚠️ ข่าว {title_display} กำลังจะออก!",
-                            f"อีก {int(time_until // 60)} นาที (เวลา {format_dual_time(n_time)})\nระดับ: {impact}",
+                            f"อีก {int(time_until // 60)} นาที (เวลา {format_dual_time(n_time, n.get('country'))})\nระดับ: {impact}",
                             enable_desktop_notif,
                             enable_sound_notif
                         )
@@ -1163,7 +1170,7 @@ def render_live_section():
                     st.warning(f"## ⏳ อีก {hours} ชม. {minutes} นาที")
                 else:
                     st.info(f"## ⏳ อีก {hours} ชม. {minutes} นาที")
-                st.write(f"เวลา: **{format_dual_time(next_time)}**")
+                st.write(f"เวลา: **{format_dual_time(next_time, next_currency)}**")
                 st.markdown(f"ระดับ: {impact_badge_html(impact_level)} | {get_currency_badge(next_currency)}", unsafe_allow_html=True)
             with col2:
                 st.warning(f"### {display_th} ({next_news.get('title', 'N/A')})")
@@ -1183,7 +1190,7 @@ def render_live_section():
                     badge = impact_emoji(n.get("impact", ""))
                     currency_b = get_currency_badge(n.get("country", ""))  # ดึงธงชาติ
 
-                    with st.expander(f"{badge} {currency_b} | ⏰ {format_dual_time(n_time)} - {display_th}"):
+                    with st.expander(f"{badge} {currency_b} | ⏰ {format_dual_time(n_time, n.get('country'))} - {display_th}"):
                         st.markdown(f"**สกุลเงิน:** {currency_b} | **ความรุนแรง:** {impact_badge_html(n.get('impact', ''))}", unsafe_allow_html=True)
                         st.write(f"**การวิเคราะห์:** {info['impact']}")
                         st.write(
@@ -1198,7 +1205,7 @@ def render_live_section():
         # ---------------------------------------------------------
         if past_news:
             st.markdown("<br>", unsafe_allow_html=True)
-            st.subheader("✅ สรุปผลข่าวที่ประกาศไปแล้ววันนี้ (ล่าสุดก่อน)")
+            st.subheader("✅ ข่าวที่ประกาศไปแล้ววันนี้ (เรียงจากล่าสุดขึ้นก่อน)")
 
             for n, n_time in past_news:
                 info = translate_news(n.get("title", ""))
@@ -1207,9 +1214,10 @@ def render_live_section():
                 forecast_raw = n.get("forecast") or "N/A"
                 previous_raw = n.get("previous") or "N/A"
                 badge = impact_emoji(n.get("impact", ""))
+                currency_b = get_currency_badge(n.get("country", ""))
 
-                with st.expander(f"{badge} ✔️ ข่าวออกแล้วเวลา {format_dual_time(n_time)}: {display_th}", expanded=True):
-                    st.markdown(impact_badge_html(n.get("impact", "")), unsafe_allow_html=True)
+                with st.expander(f"{badge} {currency_b} ✔️ ออกแล้วเวลา {format_dual_time(n_time, n.get('country'))}: {display_th}", expanded=True):
+                    st.markdown(f"{impact_badge_html(n.get('impact', ''))} &nbsp; {currency_b}", unsafe_allow_html=True)
 
                     if actual_raw == forecast_raw == previous_raw == "N/A":
                         # ข่าวประเภทแถลงการณ์/สุนทรพจน์ ไม่มีตัวเลขให้เทียบ ไม่ต้องโชว์กล่อง N/A ซ้ำ 3 อัน
