@@ -1,4 +1,4 @@
-readme_content = """# 🥇 Gold News Calendar Assistant
+# 🥇 Gold News Calendar Assistant
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)
