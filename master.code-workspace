@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "name": "📦 Root Project (Master gold)",
+      "path": ".",
+    },
+   
+    {
+      "name": "🖥️ Backend",
+      "path": "fastapi",
+    },
+    {
+      "name": "🎨 (Main Application)",
+      "path": "app",
+    },
+  ],
+}

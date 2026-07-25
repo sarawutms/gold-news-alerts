@@ -1,3 +1,20 @@
+
+python -m venv .venv
+
+# 2. Activate venv
+# บน Windows (PowerShell) || Git brash:
+source venv/Scripts/activate
+
+# บน Linux/macOS:
+source .venv/bin/activate
+
+# 3. ติดตั้ง Lib เข้า venv ใหม่นั้น
+pip install -r requirements.txt
+
+
+# 4. Quick start
+./run.bat
+
 # 🥇 Gold News Alerts
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)
