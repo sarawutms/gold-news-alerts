@@ -1,0 +1,18 @@
+fastapi
+uvicorn
+pydantic
+discord.py
+sqlmodel>=0.0.22
+sqlalchemy>=2.0.0
+python-dotenv>=1.0.1
+psycopg2-binary>=2.9.9
+types-requests
+asyncpg
+# GraphQL (Added)
+strawberry-graphql[fastapi]
+omise
+
+# Linters / type checker / formatter
+ruff>=0.3.0
+mypy>=1.8.0
+typeguard
