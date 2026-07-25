@@ -19,6 +19,15 @@ coverage/
 .vercel
 .env*.local
 .env*
-venv
 
 user_settings.json
+
+
+# Python / Cache
+.ruff_cache/
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+.venv/
